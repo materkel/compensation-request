@@ -14,13 +14,21 @@ module.exports = function () {
   var options = arguments.length <= 0 || arguments[0] === undefined ? {} : arguments[0];
 
   var client = _redis2.default.createClient(options);
-  return {
-    client: client,
-    add: function add(id) {
-      var requestOptions = arguments.length <= 1 || arguments[1] === undefined ? {} : arguments[1];
 
-      var key = id.toString();
-      return new Promise(function (resolve, reject) {
+  function add(key) {
+    var serviceKey = arguments.length <= 1 || arguments[1] === undefined ? null : arguments[1];
+    var requestOptions = arguments.length <= 2 || arguments[2] === undefined ? {} : arguments[2];
+
+    return new Promise(function (resolve, reject) {
+      if (serviceKey) {
+        client.hset(key, serviceKey, JSON.stringify(requestOptions), function (err, res) {
+          if (!err) {
+            resolve(res);
+          } else {
+            reject(err);
+          }
+        });
+      } else {
         client.set(key, JSON.stringify(requestOptions), function (err, res) {
           if (!err) {
             resolve(res);
@@ -28,11 +36,23 @@ module.exports = function () {
             reject(err);
           }
         });
-      });
-    },
-    remove: function remove(id) {
-      var key = id.toString();
-      return new Promise(function (resolve, reject) {
+      }
+    });
+  }
+
+  function remove(key) {
+    var serviceKey = arguments.length <= 1 || arguments[1] === undefined ? null : arguments[1];
+
+    return new Promise(function (resolve, reject) {
+      if (serviceKey) {
+        client.hdel(key, serviceKey, function (err, res) {
+          if (!err) {
+            resolve(res);
+          } else {
+            reject(err);
+          }
+        });
+      } else {
         client.del(key, function (err, res) {
           if (!err) {
             resolve(res);
@@ -40,16 +60,19 @@ module.exports = function () {
             reject(err);
           }
         });
-      });
-    },
-    run: function run(id) {
-      var key = id.toString();
-      return new Promise(function (resolve, reject) {
-        client.get(key, function (err, data) {
+      }
+    });
+  }
+
+  function run(key) {
+    var serviceKey = arguments.length <= 1 || arguments[1] === undefined ? null : arguments[1];
+
+    return new Promise(function (resolve, reject) {
+      if (serviceKey) {
+        client.hget(key, serviceKey, function (err, data) {
           if (!err) {
-            var requestOptions = JSON.parse(data);
             // Call compensating action request
-            (0, _requestPromise2.default)(requestOptions).then(function (res) {
+            (0, _requestPromise2.default)(JSON.parse(compensation)).then(function (res) {
               return resolve(res);
             }).catch(function (err) {
               return reject(err);
@@ -58,7 +81,52 @@ module.exports = function () {
             reject(err);
           }
         });
+      } else {
+        client.get(key, function (err, compensation) {
+          if (!err) {
+            // Call compensating action request
+            (0, _requestPromise2.default)(JSON.parse(compensation)).then(function (res) {
+              // Remove key on compensation success
+              remove(key)
+              // Return result of compensation
+              .then(function (_res) {
+                resolve(res);
+              });
+            }).catch(function (err) {
+              return reject(err);
+            });
+          } else {
+            reject(err);
+          }
+        });
+      }
+    });
+  }
+
+  function runAll(key) {
+    return new Promise(function (resolve, reject) {
+      client.hgetall(key, function (err, data) {
+        if (!err) {
+          (function () {
+            var promises = [];
+            // Call compensating action requests
+            data.forEach(function (compensation) {
+              promises.push((0, _requestPromise2.default)(JSON.parse(compensation)));
+            });
+            resolve(Promise.all(promises));
+          })();
+        } else {
+          reject(err);
+        }
       });
-    }
+    });
+  }
+
+  return {
+    client: client,
+    add: add,
+    remove: remove,
+    run: run,
+    runAll: runAll
   };
 };
