@@ -45,12 +45,12 @@ describe('The compensation library', () => {
 
 describe('A compensation', () => {
   /********* Start Preparation Code **********/
-  let compensation = compensationLib();
+  const compensation = compensationLib();
   /********* End Preparation Code **********/
 
 	it('should be added to the database', done => {
     compensation
-      .add('compensationid', { method: 'POST', uri: `${appUrl}/test` })
+      .add('compensationid', null, { method: 'POST', uri: `${appUrl}/test` })
       .then(res => {
         db.get('compensationid', (err, res) => {
           if (!err) {
@@ -85,7 +85,7 @@ describe('A compensation', () => {
 
   it('should return a promise when added', done => {
     compensation
-      .add('compensationIdxyz', { method: 'POST', uri: `${appUrl}/test` })
+      .add('compensationIdxyz', null, { method: 'POST', uri: `${appUrl}/test` })
       .then(() => done())
       .catch(err => done());
   });
@@ -97,22 +97,134 @@ describe('A compensation', () => {
       .catch(err => done(err));
   });
 
-  it('should return a promise when removed', done => {
+	it('should be called', done => {
     compensation
-      .remove('compensationIdxyz')
+      .add('compensationId3', null, { method: 'POST', uri: `${appUrl}/test` })
+      .then(res => compensation.run('compensationId3'))
+      .then(res => done())
+      .catch(err => done(err))
+  });
+});
+
+describe('A compensation with service key', () => {
+  /********* Start Preparation Code **********/
+  const compensation = compensationLib();
+  /********* End Preparation Code **********/
+
+  it('should be added to the database', done => {
+    compensation
+      .add('compensationid', 'serviceKey', { method: 'POST', uri: `${appUrl}/test` })
+      .then(res => {
+        db.hget('compensationid', 'serviceKey', (err, res) => {
+          if (!err) {
+            expect(res).to.be.defined;
+            res = JSON.parse(res);
+            expect(res).to.be.an('object');
+            let { method, uri } = res;
+            expect(method).to.be.defined;
+            expect(uri).to.be.defined;
+            done();
+          } else {
+            done(err);
+          }
+        });
+      });
+  });
+
+  it('should be removed from the database', done => {
+    compensation
+      .remove('compensationid', 'serviceKey')
+      .then(res => {
+        db.get('compensationid', (err, res) => {
+          if (!err) {
+            expect(res).to.be.defined;
+            done();
+          } else {
+            done(err);
+          }
+        });
+      });
+  });
+
+  it('should return a promise when added', done => {
+    compensation
+      .add('compensationIdxyz', null, { method: 'POST', uri: `${appUrl}/test` })
       .then(() => done())
       .catch(err => done());
   });
 
-	it('should be called', done => {
+  it('should return a promise when called', done => {
     compensation
-      .add('compensationId3', { method: 'POST', uri: `${appUrl}/test` })
+      .run('compensationIdxyz')
+      .then(res => done())
+      .catch(err => done(err));
+  });
+
+  it('should be called with serviceKey', done => {
+    compensation
+      .add('compensationId4', 'serviceKey', { method: 'POST', uri: `${appUrl}/test` })
+      .then(res => compensation.run('compensationId4', 'serviceKey'))
+      .then(res => done())
+      .catch(err => done(err));
+  });
+});
+
+describe('Multiple compensations', () => {
+  /********* Start Preparation Code **********/
+  const compensation = compensationLib();
+  /********* End Preparation Code **********/
+
+  it('should be added to the database', done => {
+    let promises = [];
+    promises.push(compensation.add('compensationid', 'service1', { method: 'POST', uri: `${appUrl}/test` }));
+    promises.push(compensation.add('compensationid', 'service2', { method: 'PUT', uri: `${appUrl}/test` }));
+    Promise
+      .all(promises)
       .then(res => {
-        compensation
-          .run('compensationId3')
-          .then(res => done())
-          .catch(err => done(err));
+        db.hgetall('compensationid', (err, res) => {
+          if (!err) {
+            expect(res).to.be.an('object');
+            for (let serviceKey in res) {
+              let compensation = res[serviceKey];
+              expect(compensation).to.be.defined;
+              compensation = JSON.parse(compensation);
+              expect(compensation).to.be.an('object');
+              let { method, uri } = compensation;
+              expect(method).to.be.defined;
+              expect(uri).to.be.defined;
+            }
+            done();
+          } else {
+            done(err);
+          }
+        });
       });
+  });
+
+  it('should be removed from the database', done => {
+    compensation
+      .remove('compensationid')
+      .then(res => {
+        db.get('compensationid', (err, res) => {
+          if (!err) {
+            expect(res).to.be.defined;
+            done();
+          } else {
+            done(err);
+          }
+        });
+      });
+  });
+
+  it('should be called', done => {
+    let promises = [];
+    promises.push(compensation.add('compensationid', 'service1', { method: 'POST', uri: `${appUrl}/test` }));
+    promises.push(compensation.add('compensationid', 'service2', { method: 'PUT', uri: `${appUrl}/test` }));
+    Promise
+      .all(promises)
+      .then(res => compensation.runAll('compensationid'))
+      .then(res => done())
+      .catch(err => done(err));
   });
 });
 

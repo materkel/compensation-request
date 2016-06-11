@@ -69,11 +69,21 @@ module.exports = function () {
 
     return new Promise(function (resolve, reject) {
       if (serviceKey) {
-        client.hget(key, serviceKey, function (err, data) {
+        client.hget(key, serviceKey, function (err, compensation) {
           if (!err) {
             // Call compensating action request
             (0, _requestPromise2.default)(JSON.parse(compensation)).then(function (res) {
-              return resolve(res);
+              // Remove serviceKey on compensation success
+              remove(key, serviceKey).then(function (_res) {
+                // Remove key when 0 servicekeys are left
+                if (_res === 0) {
+                  remove(key).then(function (__res) {
+                    return resolve(res);
+                  });
+                } else {
+                  resolve(res);
+                }
+              });
             }).catch(function (err) {
               return reject(err);
             });
@@ -105,16 +115,21 @@ module.exports = function () {
 
   function runAll(key) {
     return new Promise(function (resolve, reject) {
-      client.hgetall(key, function (err, data) {
+      client.hgetall(key, function (err, compensations) {
         if (!err) {
-          (function () {
-            var promises = [];
-            // Call compensating action requests
-            data.forEach(function (compensation) {
-              promises.push((0, _requestPromise2.default)(JSON.parse(compensation)));
+          var promises = [];
+          // Call compensating action requests
+          for (var serviceKey in compensations) {
+            promises.push((0, _requestPromise2.default)(JSON.parse(compensations[serviceKey])));
+          }
+          Promise.all(promises).then(function (res) {
+            // Remove key on compensations success
+            remove(key).then(function (_res) {
+              resolve(res);
             });
-            resolve(Promise.all(promises));
-          })();
+          }).catch(function (err) {
+            reject(err);
+          });
         } else {
           reject(err);
         }
